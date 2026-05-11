@@ -1,6 +1,7 @@
 import os
 from preprocessor import preprocess_image
 from extractor import extract_text, parse_receipt
+from exporter import export_csv
 
 IMAGES_DIR = "images"
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif")
@@ -40,7 +41,6 @@ def main():
         try:
             processed = preprocess_image(img_path)
             text = extract_text(processed)
-            print(f"    --- TEXTE BRUT ---\n{text}\n    --- FIN ---")
             data = parse_receipt(text)
             data["fichier"] = img_file
             results.append(data)
@@ -60,8 +60,12 @@ def main():
 
         print()
 
-    print("Extraction terminée.")
-    print("Prochaine étape : export CSV...")
+    # Export CSV
+    if results:
+        filepath = export_csv(results)
+        print(f"✅ CSV généré : {filepath}")
+    else:
+        print("Aucun résultat à exporter.")
 
 
 if __name__ == "__main__":
