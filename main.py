@@ -1,71 +1,75 @@
 import os
 from preprocessor import preprocess_image
 from extractor import extract_text, parse_receipt
-from exporter import export_csv
+from validator import valider_adresse
 
 IMAGES_DIR = "images"
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif")
 
 
 def get_images(directory: str) -> list[str]:
-    """Retourne la liste des fichiers image dans le dossier."""
     if not os.path.exists(directory):
         print(f"[ERREUR] Le dossier '{directory}' n'existe pas.")
         return []
-
-    images = [
+    return [
         f for f in os.listdir(directory)
         if f.lower().endswith(SUPPORTED_EXTENSIONS)
     ]
-    return images
 
 
 def main():
-    print("=== OCR Expense Tracker ===\n")
+    print("=== Receipt Reader — Extraction d'adresses ===\n")
 
     images = get_images(IMAGES_DIR)
-
     if not images:
         print(f"Aucune image trouvée dans '{IMAGES_DIR}/'.")
-        print(f"Formats supportés : {', '.join(SUPPORTED_EXTENSIONS)}")
         return
 
-    print(f"{len(images)} image(s) trouvée(s) :\n")
-
-    results = []
+    print(f"{len(images)} image(s) trouvée(s)\n")
+    print("-" * 60)
 
     for img_file in images:
         img_path = os.path.join(IMAGES_DIR, img_file)
-        print(f"  Traitement : {img_file} ...")
+        print(f"\n📄 {img_file}")
 
         try:
-            processed = preprocess_image(img_path)
-            text = extract_text(processed)
+            img = preprocess_image(img_path)
+            text = extract_text(img)
             data = parse_receipt(text)
-            data["fichier"] = img_file
-            results.append(data)
 
-            print(f"    Prix TTC : {data['prix_ttc'] or 'non trouvé'}")
-            print(f"    TVA      : {data['tva'] or 'non trouvée'}")
-            print(f"    Adresse  : {data['adresse'] or 'non trouvée'}")
+            if not data["est_ticket"]:
+                print("   ⏭  Pas un ticket, image ignorée.")
+                continue
+
+            adresse_brute = data["adresse_brute"]
+            cp = data["code_postal"]
+            ville = data["ville"]
+
+            if not adresse_brute and not cp:
+                print("   ❌ Aucune adresse ou code postal trouvé.")
+                continue
+
+            if adresse_brute:
+                print(f"   🔍 Adresse brute  : {adresse_brute}")
+            else:
+                print(f"   🔍 Code postal    : {cp} {ville or ''}")
+
+            validation = valider_adresse(adresse_brute, cp, ville)
+
+            if validation["adresse_validee"]:
+                mode = f" ({validation['mode']})" if validation["mode"] else ""
+                print(f"   ✅ Adresse validée : {validation['adresse_validee']}{mode}")
+                print(f"   📊 Confiance       : {validation['confiance']}")
+            else:
+                print(f"   ⚠️  Non trouvée sur OpenStreetMap")
+                if adresse_brute:
+                    print(f"      (adresse brute conservée : {adresse_brute})")
 
         except Exception as e:
-            print(f"    [ERREUR] {e}")
-            results.append({
-                "fichier": img_file,
-                "prix_ttc": None,
-                "tva": None,
-                "adresse": None,
-            })
+            print(f"   [ERREUR] {e}")
 
-        print()
-
-    # Export CSV
-    if results:
-        filepath = export_csv(results)
-        print(f"✅ CSV généré : {filepath}")
-    else:
-        print("Aucun résultat à exporter.")
+    print("\n" + "-" * 60)
+    print("Terminé.")
 
 
 if __name__ == "__main__":
