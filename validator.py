@@ -5,15 +5,16 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 HEADERS = {"User-Agent": "receiptReader/1.0 (stage-project)"}
 
 
-def valider_adresse(adresse_brute: str, code_postal: str = None, ville: str = None) -> dict:
+def valider_adresse(numero: str, nom_rue: str, code_postal: str) -> dict:
     """
-    Valide l'adresse via Nominatim.
     Stratégie en cascade :
-      1. Adresse complète brute
-      2. Fallback : code postal + ville uniquement
+    1. Numéro + rue + code postal
+    2. Rue + code postal (sans numéro)
+    3. Code postal seul → au moins la ville
     """
     result = {
         "adresse_validee": None,
+        "ville": None,
         "latitude": None,
         "longitude": None,
         "confiance": "non trouvée",
@@ -21,39 +22,39 @@ def valider_adresse(adresse_brute: str, code_postal: str = None, ville: str = No
     }
 
     # Tentative 1 : adresse complète
-    if adresse_brute:
-        res = _query_nominatim(adresse_brute)
+    if numero and nom_rue and code_postal:
+        query = f"{numero} {nom_rue}, {code_postal}, France"
+        res = _query(query)
         if res:
             result.update(res)
             result["mode"] = "adresse complète"
             return result
         time.sleep(1)
 
-    # Tentative 2 : fallback code postal + ville
-    if code_postal and ville:
-        query = f"{ville}, {code_postal}, France"
-        res = _query_nominatim(query)
+    # Tentative 2 : rue + code postal
+    if nom_rue and code_postal:
+        query = f"{nom_rue}, {code_postal}, France"
+        res = _query(query)
         if res:
             result.update(res)
-            result["mode"] = "fallback ville"
+            result["mode"] = "rue + code postal"
             return result
         time.sleep(1)
 
-    # Tentative 3 : fallback code postal seul
+    # Tentative 3 : code postal seul → déduit la ville
     if code_postal:
         query = f"{code_postal}, France"
-        res = _query_nominatim(query)
+        res = _query(query)
         if res:
             result.update(res)
-            result["mode"] = "fallback code postal"
+            result["mode"] = "code postal uniquement"
             return result
         time.sleep(1)
 
     return result
 
 
-def _query_nominatim(query: str) -> dict | None:
-    """Envoie une requête à Nominatim et retourne le résultat ou None."""
+def _query(query: str) -> dict | None:
     try:
         params = {
             "q": query,
@@ -62,21 +63,24 @@ def _query_nominatim(query: str) -> dict | None:
             "limit": 1,
             "countrycodes": "fr",
         }
-        response = requests.get(NOMINATIM_URL, params=params, headers=HEADERS, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-
+        r = requests.get(NOMINATIM_URL, params=params, headers=HEADERS, timeout=5)
+        r.raise_for_status()
+        data = r.json()
         if data:
             top = data[0]
             importance = float(top.get("importance", 0))
+            # Extraire la ville depuis addressdetails
+            addr = top.get("address", {})
+            ville = (addr.get("city") or addr.get("town") or
+                     addr.get("village") or addr.get("municipality") or "")
             return {
                 "adresse_validee": top.get("display_name"),
+                "ville": ville,
                 "latitude": top.get("lat"),
                 "longitude": top.get("lon"),
                 "confiance": "haute" if importance > 0.5 else "moyenne",
             }
     except Exception:
         pass
-
     time.sleep(1)
     return None
