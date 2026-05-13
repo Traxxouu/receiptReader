@@ -1,8 +1,6 @@
 import os
 from preprocessor import preprocess_image
-from extractor import extract_text, parse_receipt
-from validator import valider_adresse
-from exporter import export_csv
+from extractor import extract_lines, parse_receipt
 
 IMAGES_DIR = "images"
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif")
@@ -12,23 +10,22 @@ def get_images(directory: str) -> list[str]:
     if not os.path.exists(directory):
         print(f"[ERREUR] Le dossier '{directory}' n'existe pas.")
         return []
-    return [
+    return sorted([
         f for f in os.listdir(directory)
         if f.lower().endswith(SUPPORTED_EXTENSIONS)
-    ]
+    ])
 
 
 def main():
-    print("=== Receipt Reader — Extraction d'adresses ===\n")
+    print("=== Receipt Reader ===\n")
 
     images = get_images(IMAGES_DIR)
     if not images:
-        print(f"Aucune image trouvée dans '{IMAGES_DIR}/'.")
+        print(f"Aucune image trouvee dans '{IMAGES_DIR}/'.")
         return
 
-    print(f"{len(images)} image(s) trouvée(s)\n")
+    print(f"{len(images)} image(s) trouvee(s)\n")
     print("-" * 60)
-    rows: list[dict] = []
 
     for img_file in images:
         img_path = os.path.join(IMAGES_DIR, img_file)
@@ -36,82 +33,23 @@ def main():
 
         try:
             img = preprocess_image(img_path)
-            text = extract_text(img)
-            data = parse_receipt(text)
-
-            row = {
-                "fichier": img_file,
-                "adresse_complete": data.get("adresse_complete") or "",
-                "adresse_brute": data.get("adresse_brute") or "",
-                "code_postal": data.get("code_postal") or "",
-                "ville": data.get("ville") or "",
-                "adresse_validee": "",
-                "confiance": "",
-                "mode": "",
-                "statut": "",
-            }
+            lines = extract_lines(img)
+            data = parse_receipt(lines)
 
             if not data["est_ticket"]:
-                print("   ⏭  Pas un ticket, image ignorée.")
-                row["statut"] = "ignore"
-                rows.append(row)
+                print("   ⏭  Pas un ticket, ignore.")
                 continue
 
-            adresse_brute = data["adresse_brute"]
-            cp = data["code_postal"]
-            ville = data["ville"]
-
-            if not adresse_brute and not cp:
-                print("   ❌ Aucune adresse ou code postal trouvé.")
-                row["statut"] = "non_trouve"
-                rows.append(row)
-                continue
-
-            if adresse_brute:
-                print(f"   🔍 Adresse brute  : {adresse_brute}")
-                if data.get("adresse_complete"):
-                    print(f"   🧩 Adresse complète: {data['adresse_complete']}")
+            if data["adresse"]:
+                print(f"   ✅ {data['adresse']}")
             else:
-                print(f"   🔍 Code postal    : {cp} {ville or ''}")
-
-            validation = valider_adresse(data["numero_rue"], data["nom_rue"], cp, ville)
-
-            if validation["adresse_validee"]:
-                mode = f" ({validation['mode']})" if validation["mode"] else ""
-                print(f"   ✅ Adresse validée : {validation['adresse_validee']}{mode}")
-                print(f"   📊 Confiance       : {validation['confiance']}")
-                row["adresse_validee"] = validation["adresse_validee"] or ""
-                row["confiance"] = validation["confiance"] or ""
-                row["mode"] = validation["mode"] or ""
-                row["ville"] = validation["ville"] or row["ville"]
-                row["statut"] = "ok"
-            else:
-                print(f"   ⚠️  Non trouvée sur OpenStreetMap")
-                if adresse_brute:
-                    print(f"      (adresse brute conservée : {adresse_brute})")
-                row["statut"] = "partiel"
-
-            rows.append(row)
+                print("   ❌ Adresse non trouvee")
 
         except Exception as e:
             print(f"   [ERREUR] {e}")
-            rows.append({
-                "fichier": img_file,
-                "adresse_complete": "",
-                "adresse_brute": "",
-                "code_postal": "",
-                "ville": "",
-                "adresse_validee": "",
-                "confiance": "",
-                "mode": "",
-                "statut": f"erreur: {str(e)[:80]}",
-            })
 
     print("\n" + "-" * 60)
-    if rows:
-        csv_path = export_csv(rows)
-        print(f"CSV exporté: {csv_path}")
-    print("Terminé.")
+    print("Termine.")
 
 
 if __name__ == "__main__":
