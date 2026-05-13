@@ -8,12 +8,15 @@ _reader = None
 def get_reader() -> easyocr.Reader:
     global _reader
     if _reader is None:
-        print("   [EasyOCR] Chargement du modèle (première fois uniquement)...")
         _reader = easyocr.Reader(["fr", "en"], gpu=False)
     return _reader
 
 
-def extract_text(img: np.ndarray) -> str:
+def extract_text(img: np.ndarray) -> list[tuple]:
+    """
+    Retourne la liste brute EasyOCR : [(bbox, text, conf), ...]
+    Teste 0°, 90°, 180°, 270°.
+    """
     reader = get_reader()
     results = reader.readtext(
         img,
@@ -21,108 +24,78 @@ def extract_text(img: np.ndarray) -> str:
         paragraph=False,
         rotation_info=[90, 180, 270]
     )
-    if not results:
-        return ""
-    results.sort(key=lambda r: r[0][0][1])
-    lines = [text for (_, text, conf) in results if conf > 0.1]
-    return "\n".join(lines)
+    return results or []
 
 
-def is_mostly_empty(text: str) -> bool:
-    clean = re.sub(r'\s+', '', text)
-    return len(clean) < 30
+def is_mostly_empty(results: list[tuple]) -> bool:
+    text = " ".join(t for (_, t, c) in results if c > 0.1)
+    return len(re.sub(r'\s+', '', text)) < 30
 
 
-def parse_receipt(text: str) -> dict:
+def parse_receipt(results: list[tuple]) -> dict:
+    """
+    Nouvelle logique simplifiée et robuste :
+    1. Extrait le code postal (5 chiffres) → fiable pour l'OCR
+    2. Extrait numéro + nom de rue → ce que l'OCR lit bien
+    3. Laisse Nominatim déduire la ville depuis le code postal
+    """
     result = {
-        "adresse_brute": None,
+        "numero_rue": None,
+        "nom_rue": None,
         "code_postal": None,
-        "ville": None,
         "est_ticket": True,
     }
 
-    if is_mostly_empty(text):
+    if is_mostly_empty(results):
         result["est_ticket"] = False
         return result
 
-    lines = text.splitlines()
-    lines = [l.strip() for l in lines if l.strip()]
+    # Reconstituer les lignes triées par position verticale
+    results_sorted = sorted(results, key=lambda r: r[0][0][1])
+    lines = [text for (_, text, conf) in results_sorted if conf > 0.1]
 
-    result["adresse_brute"] = extract_adresse(lines)
-
-    # Toujours extraire code postal + ville séparément pour le fallback Nominatim
-    cp, ville = extract_code_postal_ville(lines)
-    result["code_postal"] = cp
-    result["ville"] = ville
+    result["code_postal"] = _extract_code_postal(lines)
+    numero, rue = _extract_rue(lines)
+    result["numero_rue"] = numero
+    result["nom_rue"] = rue
 
     return result
 
 
-def extract_adresse(lines: list[str]) -> str | None:
-    adresse_pattern = re.compile(
-        r"^\d{1,4}\s+(?:rue|avenue|av\.?|boulevard|bd\.?|place|impasse|allée|allee|route|rte\.?|chemin|voie|passage|square)\s+.+",
-        re.IGNORECASE
-    )
-    # Pattern sans numéro : "Bois-d'Arcy - Versailles" style Leroy Merlin
-    ville_composee_pattern = re.compile(
-        r"^[A-ZÀ-Üa-zà-ü][a-zA-ZÀ-üà-ü\-\s']+\s*[-–]\s*[A-ZÀ-Üa-zà-ü][a-zA-ZÀ-üà-ü\s]+$"
-    )
-    code_postal_pattern = re.compile(r"\b\d{5}\b")
-    mots_a_ignorer = ["siret", "tva", "naf", "tel", "tél", "www", "http",
-                      "fax", "fidélité", "fidelite", "capital", "rcs", "siren",
-                      "total", "ticket", "vente", "facture", "merci"]
-
-    # Stratégie 1 : numéro + type de voie
-    for i, line in enumerate(lines):
-        if adresse_pattern.match(line):
-            if i + 1 < len(lines) and code_postal_pattern.search(lines[i + 1]):
-                return f"{line}, {lines[i + 1]}"
-            return line
-
-    # Stratégie 2 : "Ville - Ville" (Leroy Merlin style)
-    for i, line in enumerate(lines):
-        if ville_composee_pattern.match(line) and not any(kw in line.lower() for kw in mots_a_ignorer):
-            if i > 0:
-                return f"{lines[i - 1]}, {line}"
-            return line
-
-    # Stratégie 3 : code postal 5 chiffres
-    for i, line in enumerate(lines):
-        if code_postal_pattern.search(line):
-            if any(kw in line.lower() for kw in mots_a_ignorer):
-                continue
-            if len(re.sub(r'\D', '', line)) > 8:
-                continue
-            if i > 0 and not any(kw in lines[i - 1].lower() for kw in mots_a_ignorer):
-                return f"{lines[i - 1]}, {line}"
-            return line
-
-    return None
-
-
-def extract_code_postal_ville(lines: list[str]) -> tuple[str | None, str | None]:
-    """
-    Extrait le code postal et la ville séparément.
-    Utilisé comme fallback pour Nominatim si l'adresse complète échoue.
-    """
-    code_postal_pattern = re.compile(r"\b(\d{5})\b")
-    mots_a_ignorer = ["siret", "tva", "naf", "tel", "tél", "www", "http",
-                      "fax", "capital", "rcs", "siren"]
+def _extract_code_postal(lines: list[str]) -> str | None:
+    """Cherche un code postal français (5 chiffres commençant par 0-9)."""
+    pattern = re.compile(r"\b([013-9]\d{4})\b")
+    mots_a_ignorer = ["siret", "tva", "naf", "siren", "rcs", "iban", "bic"]
 
     for line in lines:
         if any(kw in line.lower() for kw in mots_a_ignorer):
             continue
-        if len(re.sub(r'\D', '', line)) > 8:
+        # Ignore les lignes avec trop de chiffres (SIRET = 14 chiffres)
+        if len(re.sub(r'\D', '', line)) > 10:
             continue
-
-        match = code_postal_pattern.search(line)
+        match = pattern.search(line)
         if match:
-            cp = match.group(1)
-            # La ville = tout ce qui suit le code postal sur la même ligne
-            ville_raw = line[match.end():].strip()
-            ville = re.sub(r'[^a-zA-ZÀ-ü\s\-]', '', ville_raw).strip()
-            if ville:
-                return cp, ville
-            return cp, None
+            return match.group(1)
+    return None
+
+
+def _extract_rue(lines: list[str]) -> tuple[str | None, str | None]:
+    """
+    Cherche une ligne contenant un numéro + type de voie + nom.
+    Retourne (numero, nom_de_rue).
+    """
+    rue_pattern = re.compile(
+        r"^(\d{1,4})\s+((?:rue|avenue|av\.?|boulevard|bd\.?|place|impasse|allée|allee|route|rte\.?|chemin|voie|passage|square)\s+.+)",
+        re.IGNORECASE
+    )
+    mots_a_ignorer = ["siret", "tva", "total", "ticket", "facture", "vente",
+                      "merci", "article", "promotion", "carte"]
+
+    for line in lines:
+        if any(kw in line.lower() for kw in mots_a_ignorer):
+            continue
+        match = rue_pattern.match(line)
+        if match:
+            return match.group(1), match.group(2).strip()
 
     return None, None
