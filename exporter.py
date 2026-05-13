@@ -16,7 +16,17 @@ def export_csv(results: list[dict]) -> str:
     filename = f"notes_de_frais_{timestamp}.csv"
     filepath = os.path.join(OUTPUT_DIR, filename)
 
-    fieldnames = ["fichier", "prix_ttc", "tva", "adresse"]
+    fieldnames = [
+        "fichier",
+        "adresse_complete",
+        "adresse_brute",
+        "code_postal",
+        "ville",
+        "adresse_validee",
+        "confiance",
+        "mode",
+        "statut",
+    ]
 
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=";")
@@ -24,9 +34,14 @@ def export_csv(results: list[dict]) -> str:
         for row in results:
             writer.writerow({
                 "fichier": row.get("fichier", ""),
-                "prix_ttc": row.get("prix_ttc", ""),
-                "tva": row.get("tva", ""),
-                "adresse": row.get("adresse", ""),
+                "adresse_complete": row.get("adresse_complete", ""),
+                "adresse_brute": row.get("adresse_brute", ""),
+                "code_postal": row.get("code_postal", ""),
+                "ville": row.get("ville", ""),
+                "adresse_validee": row.get("adresse_validee", ""),
+                "confiance": row.get("confiance", ""),
+                "mode": row.get("mode", ""),
+                "statut": row.get("statut", ""),
             })
 
     return filepath
