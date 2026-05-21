@@ -7,7 +7,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog, QScrollArea,
-    QFrame, QProgressBar, QSizePolicy, QDialog, QInputDialog, QMessageBox
+    QFrame, QProgressBar, QSizePolicy, QDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QCursor, QPixmap
@@ -31,10 +31,15 @@ class Worker(QThread):
         self.image_paths = image_paths
         self.adresse_labo = adresse_labo
 
+    def _log_stage(self, index: int, total: int, filename: str, stage: str) -> None:
+        print(f"[{index + 1}/{total}] {filename} - {stage}", flush=True)
+
     def run(self):
+        total = len(self.image_paths)
         for i, img_path in enumerate(self.image_paths):
             filename = os.path.basename(img_path)
             self.progress.emit(i, filename)
+            self._log_stage(i, total, filename, "chargement de l'image")
 
             entry = {
                 "fichier": filename,
@@ -46,27 +51,35 @@ class Worker(QThread):
             }
 
             try:
+                self._log_stage(i, total, filename, "preparation OCR")
                 img = preprocess_image(img_path)
+                self._log_stage(i, total, filename, "extraction OCR")
                 texte = extract_raw_text(img)
 
                 if not texte.strip():
                     entry["statut"] = "vide"
+                    self._log_stage(i, total, filename, "aucun texte detecte")
                     self.result_ready.emit(entry)
                     continue
 
+                self._log_stage(i, total, filename, "traitement par l'IA")
                 adresse = extraire_adresse_ia(texte)
                 if adresse:
+                    self._log_stage(i, total, filename, "calcul de la distance")
                     entry["adresse"] = adresse
                     dist = calculer_distance(self.adresse_labo, adresse)
                     entry["distance_raw"] = dist
                     entry["distance_km"] = f"{dist:.1f} km" if dist else "N/A"
                     entry["statut"] = "ok"
+                    self._log_stage(i, total, filename, f"termine -> {entry['distance_km']}")
                 else:
                     entry["statut"] = "non_trouve"
+                    self._log_stage(i, total, filename, "adresse non trouvee")
 
             except Exception as e:
                 entry["statut"] = "erreur"
                 entry["adresse"] = str(e)[:60]
+                self._log_stage(i, total, filename, f"erreur -> {entry['adresse']}")
 
             self.result_ready.emit(entry)
 
@@ -659,27 +672,6 @@ class MainWindow(QMainWindow):
         self.btn_extract.setEnabled(True)
         self.btn_export_csv.setVisible(True)
         self.btn_export_xlsx.setVisible(True)
-
-    def _sauvegarder(self):
-        # Deprecated: use individual export buttons
-        return
-
-    def _generer_csv(self, path: str):
-        # legacy: not used
-        return
-
-    def _generer_xlsx(self, path: str):
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        except ImportError:
-            import subprocess
-            subprocess.run([sys.executable, "-m", "pip", "install", "openpyxl"], capture_output=True)
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-        # legacy: not used
-        return
 
     def _export_csv(self):
         if not self.all_results:
