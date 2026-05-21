@@ -7,14 +7,14 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog, QScrollArea,
-    QFrame, QProgressBar, QSizePolicy, QDialog, QInputDialog
+    QFrame, QProgressBar, QSizePolicy, QDialog, QInputDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QCursor, QPixmap
 
 from preprocessor import preprocess_image
 from extractor import extract_raw_text
-from ia import extraire_adresse_ia
+from ia import extraire_adresse_ia, ollama_model_exists, ollama_pull_model, ollama_server_reachable, MODEL
 from distance import calculer_distance
 
 
@@ -590,6 +590,38 @@ class MainWindow(QMainWindow):
         if not self.adresse_labo:
             self.status_label.setText("Veuillez saisir l'adresse du laboratoire.")
             return
+
+        if not ollama_server_reachable():
+            QMessageBox.warning(
+                self,
+                "Ollama indisponible",
+                "Ollama ne repond pas. Lance d'abord le serveur avec :\n\nollama serve"
+            )
+            return
+
+        if not ollama_model_exists(MODEL):
+            reply = QMessageBox.question(
+                self,
+                "Modele Ollama manquant",
+                f"Le modele '{MODEL}' n'est pas installe.\n\nVoulez-vous le telecharger maintenant ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self.status_label.setText(
+                    f"Installe le modele avec : ollama pull {MODEL}"
+                )
+                return
+
+            try:
+                self.status_label.setText(f"Telechargement du modele {MODEL}...")
+                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+                ollama_pull_model(MODEL)
+            except Exception as exc:
+                QMessageBox.critical(self, "Echec du telechargement", str(exc))
+                return
+            finally:
+                QApplication.restoreOverrideCursor()
 
         self._clear_content()
         self.all_results = []
