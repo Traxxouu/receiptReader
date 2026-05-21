@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QFileDialog, QScrollArea,
     QFrame, QProgressBar, QSizePolicy, QDialog, QInputDialog
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QCursor, QPixmap
 
 from preprocessor import preprocess_image
@@ -177,7 +177,7 @@ class DropZone(QFrame):
 # Ligne résultat
 # ─────────────────────────────────────────────
 class ResultRow(QFrame):
-    adresse_modifiee = pyqtSignal(str, str)  # (fichier, nouvelle_adresse)
+    adresse_modifiee = pyqtSignal(str, str)
 
     STATUS_STYLE = {
         "ok": "#2d6a4f",
@@ -199,57 +199,44 @@ class ResultRow(QFrame):
         statut = data.get("statut", "erreur")
         color = self.STATUS_STYLE.get(statut, "#999")
 
-        # Fichier
         fichier = QLabel(data.get("fichier", ""))
         fichier.setFixedWidth(190)
         fichier.setFont(QFont("Georgia", 9))
         fichier.setStyleSheet("color: #999;")
 
-        # Adresse (editable au clic)
         self.adresse_lbl = QLabel(data.get("adresse") or "—")
         self.adresse_lbl.setFont(QFont("Georgia", 10))
         self.adresse_lbl.setStyleSheet(f"color: {color};")
         self.adresse_lbl.setWordWrap(True)
         self.adresse_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        # Distance
         self.dist_lbl = QLabel(data.get("distance_km") or "—")
         self.dist_lbl.setFixedWidth(70)
         self.dist_lbl.setFont(QFont("Georgia", 10))
         self.dist_lbl.setStyleSheet("color: #555;")
         self.dist_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-        # Bouton voir ticket
         btn_voir = QPushButton("Voir")
         btn_voir.setFixedWidth(44)
         btn_voir.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_voir.setStyleSheet("""
             QPushButton {
-                background: transparent;
-                color: #aaa;
-                border: 1px solid #ddd;
-                border-radius: 3px;
-                padding: 4px 6px;
-                font-family: Georgia;
-                font-size: 10px;
+                background: transparent; color: #aaa;
+                border: 1px solid #ddd; border-radius: 3px;
+                padding: 4px 6px; font-family: Georgia; font-size: 10px;
             }
             QPushButton:hover { color: #1a1a1a; border-color: #999; }
         """)
         btn_voir.clicked.connect(self._voir_ticket)
 
-        # Bouton corriger adresse
         btn_edit = QPushButton("Corriger")
         btn_edit.setFixedWidth(60)
         btn_edit.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_edit.setStyleSheet("""
             QPushButton {
-                background: transparent;
-                color: #aaa;
-                border: 1px solid #ddd;
-                border-radius: 3px;
-                padding: 4px 6px;
-                font-family: Georgia;
-                font-size: 10px;
+                background: transparent; color: #aaa;
+                border: 1px solid #ddd; border-radius: 3px;
+                padding: 4px 6px; font-family: Georgia; font-size: 10px;
             }
             QPushButton:hover { color: #1a1a1a; border-color: #999; }
         """)
@@ -278,9 +265,8 @@ class ResultRow(QFrame):
             nouvelle = nouvelle.strip()
             self.data["adresse"] = nouvelle
             self.adresse_lbl.setText(nouvelle)
-            self.adresse_lbl.setStyleSheet("color: #1a5276;")  # bleu = corrige manuellement
+            self.adresse_lbl.setStyleSheet("color: #1a5276;")
 
-            # Recalculer la distance
             dist = calculer_distance(self.adresse_labo, nouvelle)
             self.data["distance_raw"] = dist
             self.data["distance_km"] = f"{dist:.1f} km" if dist else "N/A"
@@ -294,7 +280,7 @@ class ResultRow(QFrame):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Receipt Reader")
+        self.setWindowTitle("Maison Asteria Receipt Reader")
         self.setMinimumSize(1050, 700)
         self.image_paths = []
         self.all_results = []
@@ -336,7 +322,7 @@ class MainWindow(QMainWindow):
         ll.setContentsMargins(28, 36, 28, 36)
         ll.setSpacing(0)
 
-        brand = QLabel("Receipt\nReader")
+        brand = QLabel("Maison Asteria\nReceipt Reader")
         brand.setFont(QFont("Georgia", 20))
         brand.setStyleSheet("color: #1a1a1a;")
         ll.addWidget(brand)
@@ -378,20 +364,33 @@ class MainWindow(QMainWindow):
 
         ll.addSpacing(10)
 
-        self.btn_xlsx = QPushButton("Exporter en Excel (.xlsx)")
-        self.btn_xlsx.setVisible(False)
-        self.btn_xlsx.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn_xlsx.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #1a1a1a;
-                border: 1.5px solid #1a1a1a; border-radius: 3px;
-                padding: 11px 20px; font-family: Georgia;
-                font-size: 12px; letter-spacing: 0.5px;
-            }
+        # Export buttons: CSV and Excel (hidden until results ready)
+        export_row = QWidget()
+        export_layout = QHBoxLayout(export_row)
+        export_layout.setContentsMargins(0, 0, 0, 0)
+        export_layout.setSpacing(8)
+
+        self.btn_export_csv = QPushButton("Exporter CSV")
+        self.btn_export_csv.setVisible(False)
+        self.btn_export_csv.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_export_csv.setStyleSheet("""
+            QPushButton { background: #1a1a1a; color: #fff; border: none; border-radius: 3px; padding: 10px 14px; font-family: Georgia; font-size: 12px; }
+            QPushButton:hover { background: #333; }
+        """)
+        self.btn_export_csv.clicked.connect(self._export_csv)
+
+        self.btn_export_xlsx = QPushButton("Exporter Excel")
+        self.btn_export_xlsx.setVisible(False)
+        self.btn_export_xlsx.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_export_xlsx.setStyleSheet("""
+            QPushButton { background: transparent; color: #1a1a1a; border: 1.5px solid #1a1a1a; border-radius: 3px; padding: 10px 14px; font-family: Georgia; font-size: 12px; }
             QPushButton:hover { background: #f0f0f0; }
         """)
-        self.btn_xlsx.clicked.connect(self._export_xlsx)
-        ll.addWidget(self.btn_xlsx)
+        self.btn_export_xlsx.clicked.connect(self._export_xlsx)
+
+        export_layout.addWidget(self.btn_export_csv)
+        export_layout.addWidget(self.btn_export_xlsx)
+        ll.addWidget(export_row)
 
         ll.addSpacing(10)
 
@@ -445,7 +444,6 @@ class MainWindow(QMainWindow):
 
         rl.addSpacing(8)
 
-        # En-tetes colonnes
         self.col_header = QWidget()
         ch = QHBoxLayout(self.col_header)
         ch.setContentsMargins(0, 0, 0, 0)
@@ -508,7 +506,8 @@ class MainWindow(QMainWindow):
         self.col_header.setVisible(False)
         self.btn_extract.setEnabled(False)
         self.btn_clear.setVisible(False)
-        self.btn_xlsx.setVisible(False)
+        self.btn_export_csv.setVisible(False)
+        self.btn_export_xlsx.setVisible(False)
         self.status_label.setText("")
         self.progress.setVisible(False)
 
@@ -521,7 +520,8 @@ class MainWindow(QMainWindow):
         self._clear_content()
         self.all_results = []
         self.btn_extract.setEnabled(False)
-        self.btn_xlsx.setVisible(False)
+        self.btn_export_csv.setVisible(False)
+        self.btn_export_xlsx.setVisible(False)
         self.progress.setVisible(True)
         self.progress.setMaximum(len(self.image_paths))
         self.progress.setValue(0)
@@ -551,91 +551,157 @@ class MainWindow(QMainWindow):
         ok = sum(1 for r in self.all_results if r["statut"] == "ok")
         self.status_label.setText(f"{ok}/{len(self.all_results)} adresses trouvees")
         self.btn_extract.setEnabled(True)
-        self.btn_xlsx.setVisible(True)
+        self.btn_export_csv.setVisible(True)
+        self.btn_export_xlsx.setVisible(True)
 
-    def _export_xlsx(self):
-        if not self.all_results:
-            return
+    def _sauvegarder(self):
+        # Deprecated: use individual export buttons
+        return
 
+    def _generer_csv(self, path: str):
+        # legacy: not used
+        return
+
+    def _generer_xlsx(self, path: str):
         try:
             import openpyxl
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         except ImportError:
-            self.status_label.setText("Installation de openpyxl en cours...")
             import subprocess
             subprocess.run([sys.executable, "-m", "pip", "install", "openpyxl"], capture_output=True)
             import openpyxl
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Exporter en Excel",
-            f"notes_de_frais_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            "Excel (*.xlsx)"
-        )
-        if not path:
+        # legacy: not used
+        return
+
+    def _export_csv(self):
+        if not self.all_results:
             return
+        dossier = QFileDialog.getExistingDirectory(self, "Choisir le dossier de sauvegarde")
+        if not dossier:
+            return
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(dossier, f"notes_de_frais_{timestamp}.csv")
+        fieldnames = [
+            "adresse_depart",
+            "adresse_arrivee",
+            "nom_entreprise",
+            "distance_km",
+            "ar_km",
+            "date",
+        ]
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=";")
+            writer.writeheader()
+            for row in self.all_results:
+                dist = row.get("distance_raw")
+                writer.writerow({
+                    "adresse_depart": row.get("adresse", ""),
+                    "adresse_arrivee": self.adresse_labo or "",
+                    "nom_entreprise": "",
+                    "distance_km": f"{dist:.1f}" if dist else "",
+                    "ar_km": f"{(dist*2):.1f}" if dist else "",
+                    "date": "",
+                })
+        self.status_label.setText(f"CSV exporté : {path}")
+
+    def _export_xlsx(self):
+        if not self.all_results:
+            return
+        dossier = QFileDialog.getExistingDirectory(self, "Choisir le dossier de sauvegarde")
+        if not dossier:
+            return
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(dossier, f"notes_de_frais_{timestamp}.xlsx")
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.worksheet.table import Table, TableStyleInfo
+        except ImportError:
+            import subprocess
+            subprocess.run([sys.executable, "-m", "pip", "install", "openpyxl"], capture_output=True)
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.worksheet.table import Table, TableStyleInfo
 
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Notes de frais"
 
-        # En-têtes — colonnes exactes du tableau du maitre de stage
         headers = [
-            "Adresse de depart",
-            "Adresse d'arrivee",
-            "Nom du commerce (fichier)",
-            "Distance",
-            "A/R?",
+            "Adresse de départ",
+            "Adresse d'arrivée",
+            "Nom de l'entreprise",
+            "Distance (km)",
+            "A/R (km)",
             "Date",
         ]
 
-        header_font = Font(bold=True, name="Calibri", size=11)
-        header_fill = PatternFill("solid", fgColor="F2F2F2")
-        thin = Side(style="thin", color="DDDDDD")
-        border = Border(bottom=thin)
-
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = Alignment(horizontal="left", vertical="center")
-            cell.border = border
+            cell.font = Font(bold=True, name="Calibri", size=11, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="1F1F1F")
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = Border(
+                left=Side(style="thin", color="FFFFFF"),
+                right=Side(style="thin", color="FFFFFF"),
+                top=Side(style="thin", color="FFFFFF"),
+                bottom=Side(style="thin", color="FFFFFF"),
+            )
 
-        # Données
-        today = datetime.now().strftime("%d/%m/%Y")
         for row_data in self.all_results:
-            adresse = row_data.get("adresse", "")
-            dist_raw = row_data.get("distance_raw")
-            dist_str = f"{dist_raw:.1f}" if dist_raw else ""
+            dist = row_data.get("distance_raw")
+            ws.append([
+                row_data.get("adresse", ""),
+                self.adresse_labo or "",
+                "",
+                f"{dist:.1f}" if dist else "",
+                f"{(dist*2):.1f}" if dist else "",
+                "",
+            ])
 
-            row_values = [
-                self.adresse_labo,          # Adresse de depart
-                adresse,                     # Adresse d'arrivee
-                row_data.get("fichier", ""), # Nom du commerce
-                dist_str,                    # Distance (nombre seul pour Excel)
-                "x",                         # A/R? (comme dans le tableau)
-                today,                       # Date
-            ]
-            ws.append(row_values)
-
-        # Largeurs colonnes
-        col_widths = [35, 40, 30, 12, 8, 14]
+        col_widths = [42, 42, 28, 14, 14, 12]
         for i, width in enumerate(col_widths, 1):
             ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
 
-        # Style lignes données
         data_font = Font(name="Calibri", size=10)
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        thin = Side(style="thin", color="D9D9D9")
+        alt_fill = PatternFill("solid", fgColor="F7F7F7")
+        white_fill = PatternFill("solid", fgColor="FFFFFF")
+
+        for row_index, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row), start=2):
             for cell in row:
                 cell.font = data_font
-                cell.alignment = Alignment(horizontal="left", vertical="center")
-                cell.border = Border(bottom=Side(style="thin", color="F0F0F0"))
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                cell.border = Border(
+                    left=thin,
+                    right=thin,
+                    top=thin,
+                    bottom=thin,
+                )
+                cell.fill = alt_fill if row_index % 2 == 0 else white_fill
 
-        ws.row_dimensions[1].height = 22
+        last_col = openpyxl.utils.get_column_letter(ws.max_column)
+        last_row = ws.max_row
+        table = Table(displayName="NotesDeFrais", ref=f"A1:{last_col}{last_row}")
+        table_style = TableStyleInfo(
+            name="TableStyleMedium2",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        table.tableStyleInfo = table_style
+        ws.add_table(table)
+
+        ws.row_dimensions[1].height = 24
+        for row_idx in range(2, ws.max_row + 1):
+            ws.row_dimensions[row_idx].height = 22
         ws.freeze_panes = "A2"
-
+        ws.sheet_view.showGridLines = False
         wb.save(path)
-        self.status_label.setText("Fichier Excel sauvegarde.")
+        self.status_label.setText(f"Excel exporté : {path}")
 
 
 def main():
