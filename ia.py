@@ -1,6 +1,5 @@
 import os
 import requests
-import json
 import shutil
 import subprocess
 
@@ -83,11 +82,25 @@ def ollama_server_reachable() -> bool:
 
 
 def ollama_model_exists(model_name: str = MODEL) -> bool:
+    target = model_name.strip().lower()
+    target_base = target.split(":", 1)[0]
+
     response = requests.get(OLLAMA_TAGS_URL, timeout=10)
     response.raise_for_status()
     data = response.json()
     models = data.get("models", [])
-    return any(m.get("name") == model_name for m in models)
+
+    for model in models:
+        # Ollama can expose `name` as `llama3.2:latest` even if user requests `llama3.2`.
+        raw = (model.get("name") or model.get("model") or "").strip().lower()
+        if not raw:
+            continue
+
+        raw_base = raw.split(":", 1)[0]
+        if raw == target or raw_base == target_base:
+            return True
+
+    return False
 
 
 def ollama_pull_model(model_name: str = MODEL) -> None:
