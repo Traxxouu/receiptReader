@@ -1,5 +1,6 @@
 import sys
 import os
+import requests
 import csv
 from datetime import datetime
 
@@ -110,6 +111,76 @@ class TicketViewer(QDialog):
         """)
         btn_close.clicked.connect(self.close)
         layout.addWidget(btn_close)
+
+
+class CorrectionDialog(QDialog):
+    """Dialog with Nominatim-based autocomplete for addresses."""
+    def __init__(self, initial: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Corriger l'adresse — suggestions")
+        self.setMinimumSize(500, 300)
+
+        self.selected = None
+
+        layout = QVBoxLayout(self)
+        self.input = QLineEdit()
+        self.input.setText(initial)
+        layout.addWidget(self.input)
+
+        btn_row = QHBoxLayout()
+        self.btn_search = QPushButton("Rechercher")
+        self.btn_search.clicked.connect(self._search)
+        btn_row.addWidget(self.btn_search)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+        self.listw = QListWidget()
+        layout.addWidget(self.listw)
+
+        foot = QHBoxLayout()
+        self.btn_ok = QPushButton("Utiliser")
+        self.btn_ok.clicked.connect(self._use_selected)
+        self.btn_cancel = QPushButton("Annuler")
+        self.btn_cancel.clicked.connect(self.reject)
+        foot.addStretch()
+        foot.addWidget(self.btn_ok)
+        foot.addWidget(self.btn_cancel)
+        layout.addLayout(foot)
+
+        self.listw.itemDoubleClicked.connect(self._use_selected)
+
+    def _search(self):
+        q = self.input.text().strip()
+        if not q:
+            return
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {"q": q, "format": "json", "addressdetails": 0, "limit": 6}
+        try:
+            resp = requests.get(url, params=params, timeout=10, headers={"User-Agent": "ReceiptReader/1.0"})
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            data = []
+
+        self.listw.clear()
+        for item in data:
+            display = item.get("display_name")
+            if display:
+                from PyQt6.QtWidgets import QListWidgetItem
+                self.listw.addItem(QListWidgetItem(display))
+
+    def _use_selected(self):
+        it = self.listw.currentItem()
+        if it:
+            self.selected = it.text()
+            self.accept()
+        else:
+            # fallback to input content
+            txt = self.input.text().strip()
+            if txt:
+                self.selected = txt
+                self.accept()
 
 
 # ─────────────────────────────────────────────
@@ -263,13 +334,9 @@ class ResultRow(QFrame):
 
     def _corriger_adresse(self):
         adresse_actuelle = self.data.get("adresse", "")
-        nouvelle, ok = QInputDialog.getText(
-            self, "Corriger l'adresse",
-            "Adresse corrigee :",
-            text=adresse_actuelle
-        )
-        if ok and nouvelle.strip():
-            nouvelle = nouvelle.strip()
+        dlg = CorrectionDialog(adresse_actuelle, self)
+        if dlg.exec() and dlg.selected:
+            nouvelle = dlg.selected.strip()
             self.data["adresse"] = nouvelle
             self.adresse_lbl.setText(nouvelle)
             self.adresse_lbl.setStyleSheet("color: #1a5276;")
