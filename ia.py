@@ -1,8 +1,10 @@
+import os
 import requests
 import json
 
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+OLLAMA_URL = f"{OLLAMA_HOST}/api/generate"
 MODEL = "llama3.2"
 
 PROMPT_TEMPLATE = """Tu es un assistant qui extrait des adresses postales depuis du texte OCR de tickets de caisse.
@@ -58,5 +60,12 @@ def extraire_adresse_ia(texte_brut: str) -> str | None:
 
     except requests.exceptions.ConnectionError:
         raise RuntimeError("Ollama n'est pas lance. Demarre-le avec : ollama serve")
+    except requests.exceptions.HTTPError as e:
+        status = getattr(e.response, "status_code", None)
+        if status == 404:
+            raise RuntimeError(
+                f"Ollama a repondu 404 sur {OLLAMA_URL}. Verifie que le serveur Ollama tourne bien sur localhost:11434 et que OLLAMA_HOST n'est pas mal configure."
+            )
+        raise RuntimeError(f"Erreur Ollama HTTP {status or ''}: {e}")
     except Exception as e:
         raise RuntimeError(f"Erreur Ollama : {e}")

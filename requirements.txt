@@ -4,3 +4,4 @@ Pillow
 numpy
 requests
 PyQt6
+openpyxl
