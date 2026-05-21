@@ -1,10 +1,13 @@
 import os
 import requests
 import json
+import shutil
+import subprocess
 
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 OLLAMA_URL = f"{OLLAMA_HOST}/api/generate"
+OLLAMA_TAGS_URL = f"{OLLAMA_HOST}/api/tags"
 MODEL = "llama3.2"
 
 PROMPT_TEMPLATE = """Tu es un assistant qui extrait des adresses postales depuis du texte OCR de tickets de caisse.
@@ -69,3 +72,34 @@ def extraire_adresse_ia(texte_brut: str) -> str | None:
         raise RuntimeError(f"Erreur Ollama HTTP {status or ''}: {e}")
     except Exception as e:
         raise RuntimeError(f"Erreur Ollama : {e}")
+
+
+def ollama_server_reachable() -> bool:
+    try:
+        response = requests.get(OLLAMA_TAGS_URL, timeout=5)
+        return response.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
+
+
+def ollama_model_exists(model_name: str = MODEL) -> bool:
+    response = requests.get(OLLAMA_TAGS_URL, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+    models = data.get("models", [])
+    return any(m.get("name") == model_name for m in models)
+
+
+def ollama_pull_model(model_name: str = MODEL) -> None:
+    ollama_bin = shutil.which("ollama")
+    if not ollama_bin:
+        raise RuntimeError("La commande 'ollama' est introuvable. Installe Ollama puis reessaie.")
+
+    result = subprocess.run(
+        [ollama_bin, "pull", model_name],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(stderr or f"Impossible de telecharger le modele {model_name}.")

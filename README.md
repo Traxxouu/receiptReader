@@ -35,6 +35,8 @@ ollama pull llama3.2
 py app.py
 ```
 
+Sur Linux, installer seulement le `venv` et les `requirements` ne suffit pas pour l'IA: il faut aussi lancer `ollama serve` puis telecharger le modele avec `ollama pull llama3.2`.
+
 ## Utilisation
 
 1. Saisir l'adresse du laboratoire dans le champ a gauche
@@ -48,5 +50,7 @@ py app.py
 `No module named easyocr` : relancer l'installation des dependances dans le venv.
 
 `Ollama n'est pas lance` : demarrer Ollama avec `ollama serve`.
+
+`Le modele llama3.2 n'est pas installe` : lancer `ollama pull llama3.2` ou relancer `bash install.sh`.
 
 Premier lancement plus lent : normal, EasyOCR et Ollama peuvent telecharger leurs modeles la premiere fois.
