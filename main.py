@@ -1,7 +1,7 @@
 import os
 from preprocessor import preprocess_image
-from extractor import extract_text, parse_receipt
-from validator import valider_adresse
+from extractor import extract_raw_text
+from ia import extraire_adresse_ia
 from exporter import export_csv
 
 IMAGES_DIR = "images"
@@ -12,106 +12,67 @@ def get_images(directory: str) -> list[str]:
     if not os.path.exists(directory):
         print(f"[ERREUR] Le dossier '{directory}' n'existe pas.")
         return []
-    return [
+    return sorted([
         f for f in os.listdir(directory)
         if f.lower().endswith(SUPPORTED_EXTENSIONS)
-    ]
+    ])
 
 
 def main():
-    print("=== Receipt Reader — Extraction d'adresses ===\n")
+    print("=== Receipt Reader ===\n")
 
     images = get_images(IMAGES_DIR)
     if not images:
-        print(f"Aucune image trouvée dans '{IMAGES_DIR}/'.")
+        print(f"Aucune image trouvee dans '{IMAGES_DIR}/'.")
         return
 
-    print(f"{len(images)} image(s) trouvée(s)\n")
+    print(f"{len(images)} image(s) trouvee(s)\n")
     print("-" * 60)
-    rows: list[dict] = []
+
+    results = []
 
     for img_file in images:
         img_path = os.path.join(IMAGES_DIR, img_file)
         print(f"\n📄 {img_file}")
 
+        entry = {"fichier": img_file, "adresse": ""}
+
         try:
+            # Etape 1 : preprocessing
             img = preprocess_image(img_path)
-            text = extract_text(img)
-            data = parse_receipt(text)
 
-            row = {
-                "fichier": img_file,
-                "adresse_complete": data.get("adresse_complete") or "",
-                "adresse_brute": data.get("adresse_brute") or "",
-                "code_postal": data.get("code_postal") or "",
-                "ville": data.get("ville") or "",
-                "adresse_validee": "",
-                "confiance": "",
-                "mode": "",
-                "statut": "",
-            }
+            # Etape 2 : OCR → texte brut
+            texte = extract_raw_text(img)
 
-            if not data["est_ticket"]:
-                print("   ⏭  Pas un ticket, image ignorée.")
-                row["statut"] = "ignore"
-                rows.append(row)
+            if not texte.strip():
+                print("   ⏭  Aucun texte detecte, image ignoree.")
+                results.append(entry)
                 continue
 
-            adresse_brute = data["adresse_brute"]
-            cp = data["code_postal"]
-            ville = data["ville"]
+            # Etape 3 : IA locale → extraction adresse
+            print("   🔍 OCR terminé, envoi a l'IA...")
+            adresse = extraire_adresse_ia(texte)
 
-            if not adresse_brute and not cp:
-                print("   ❌ Aucune adresse ou code postal trouvé.")
-                row["statut"] = "non_trouve"
-                rows.append(row)
-                continue
-
-            if adresse_brute:
-                print(f"   🔍 Adresse brute  : {adresse_brute}")
-                if data.get("adresse_complete"):
-                    print(f"   🧩 Adresse complète: {data['adresse_complete']}")
+            if adresse:
+                print(f"   ✅ {adresse}")
+                entry["adresse"] = adresse
             else:
-                print(f"   🔍 Code postal    : {cp} {ville or ''}")
+                print("   ❌ Adresse non trouvee")
 
-            validation = valider_adresse(data["numero_rue"], data["nom_rue"], cp, ville)
-
-            if validation["adresse_validee"]:
-                mode = f" ({validation['mode']})" if validation["mode"] else ""
-                print(f"   ✅ Adresse validée : {validation['adresse_validee']}{mode}")
-                print(f"   📊 Confiance       : {validation['confiance']}")
-                row["adresse_validee"] = validation["adresse_validee"] or ""
-                row["confiance"] = validation["confiance"] or ""
-                row["mode"] = validation["mode"] or ""
-                row["ville"] = validation["ville"] or row["ville"]
-                row["statut"] = "ok"
-            else:
-                print(f"   ⚠️  Non trouvée sur OpenStreetMap")
-                if adresse_brute:
-                    print(f"      (adresse brute conservée : {adresse_brute})")
-                row["statut"] = "partiel"
-
-            rows.append(row)
-
+        except RuntimeError as e:
+            print(f"   [ERREUR] {e}")
+            break  # Si Ollama est pas lance, on arrete tout
         except Exception as e:
             print(f"   [ERREUR] {e}")
-            rows.append({
-                "fichier": img_file,
-                "adresse_complete": "",
-                "adresse_brute": "",
-                "code_postal": "",
-                "ville": "",
-                "adresse_validee": "",
-                "confiance": "",
-                "mode": "",
-                "statut": f"erreur: {str(e)[:80]}",
-            })
 
-    print("\n" + "-" * 60)
-    if rows:
-        csv_path = export_csv(rows)
-        print(f"CSV exporté: {csv_path}")
-    print("Terminé.")
+        results.append(entry)
+
+    # Export CSV
+    if results:
+        csv_path = export_csv(results)
+        print(f"\n✅ CSV genere : {csv_path}")
+
+    print("-" * 60)
 
 
 if __name__ == "__main__":

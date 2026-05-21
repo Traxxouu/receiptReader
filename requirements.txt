@@ -2,5 +2,5 @@ opencv-python
 easyocr
 Pillow
 numpy
-PyQt6
 requests
+PyQt6
