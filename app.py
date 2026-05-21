@@ -198,6 +198,7 @@ class ResultRow(QFrame):
 
         statut = data.get("statut", "erreur")
         color = self.STATUS_STYLE.get(statut, "#999")
+        distance_failed = data.get("distance_raw") is None and statut == "ok"
 
         fichier = QLabel(data.get("fichier", ""))
         fichier.setFixedWidth(190)
@@ -206,14 +207,20 @@ class ResultRow(QFrame):
 
         self.adresse_lbl = QLabel(data.get("adresse") or "—")
         self.adresse_lbl.setFont(QFont("Georgia", 10))
-        self.adresse_lbl.setStyleSheet(f"color: {color};")
+        if distance_failed:
+            self.adresse_lbl.setStyleSheet("color: #c0392b;")
+        else:
+            self.adresse_lbl.setStyleSheet(f"color: {color};")
         self.adresse_lbl.setWordWrap(True)
         self.adresse_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         self.dist_lbl = QLabel(data.get("distance_km") or "—")
         self.dist_lbl.setFixedWidth(70)
         self.dist_lbl.setFont(QFont("Georgia", 10))
-        self.dist_lbl.setStyleSheet("color: #555;")
+        if data.get("distance_raw") is None:
+            self.dist_lbl.setStyleSheet("color: #c0392b;")
+        else:
+            self.dist_lbl.setStyleSheet("color: #555;")
         self.dist_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         btn_voir = QPushButton("Voir")
@@ -582,14 +589,14 @@ class MainWindow(QMainWindow):
         if not dossier:
             return
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(dossier, f"notes_de_frais_{timestamp}.csv")
+        path = os.path.join(dossier, f"rapport_csv_{timestamp}.csv")
         fieldnames = [
-            "adresse_depart",
-            "adresse_arrivee",
-            "nom_entreprise",
-            "distance_km",
-            "ar_km",
-            "date",
+            "Adresse de départ",
+            "Adresse d'arrivée",
+            "Nom de l'entreprise",
+            "Distance (km)",
+            "A/R (km)",
+            "Date",
         ]
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=";")
@@ -597,12 +604,12 @@ class MainWindow(QMainWindow):
             for row in self.all_results:
                 dist = row.get("distance_raw")
                 writer.writerow({
-                    "adresse_depart": row.get("adresse", ""),
-                    "adresse_arrivee": self.adresse_labo or "",
-                    "nom_entreprise": "",
-                    "distance_km": f"{dist:.1f}" if dist else "",
-                    "ar_km": f"{(dist*2):.1f}" if dist else "",
-                    "date": "",
+                    "Adresse de départ": row.get("adresse", ""),
+                    "Adresse d'arrivée": self.adresse_labo or "",
+                    "Nom de l'entreprise": "",
+                    "Distance (km)": f"{dist:.1f}" if dist else "",
+                    "A/R (km)": f"{(dist*2):.1f}" if dist else "",
+                    "Date": "",
                 })
         self.status_label.setText(f"CSV exporté : {path}")
 
@@ -613,7 +620,7 @@ class MainWindow(QMainWindow):
         if not dossier:
             return
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(dossier, f"notes_de_frais_{timestamp}.xlsx")
+        path = os.path.join(dossier, f"rapport_excel_{timestamp}.xlsx")
         try:
             import openpyxl
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -629,6 +636,20 @@ class MainWindow(QMainWindow):
         ws = wb.active
         ws.title = "Notes de frais"
 
+        title = "Notes de frais - Receipt Reader"
+        ws.merge_cells("A1:F1")
+        title_cell = ws["A1"]
+        title_cell.value = title
+        title_cell.font = Font(bold=True, name="Calibri", size=14, color="1F1F1F")
+        title_cell.fill = PatternFill("solid", fgColor="EDEDED")
+        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+        title_cell.border = Border(
+            left=Side(style="thin", color="D9D9D9"),
+            right=Side(style="thin", color="D9D9D9"),
+            top=Side(style="thin", color="D9D9D9"),
+            bottom=Side(style="thin", color="D9D9D9"),
+        )
+
         headers = [
             "Adresse de départ",
             "Adresse d'arrivée",
@@ -639,7 +660,7 @@ class MainWindow(QMainWindow):
         ]
 
         for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
+            cell = ws.cell(row=2, column=col, value=header)
             cell.font = Font(bold=True, name="Calibri", size=11, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="1F1F1F")
             cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -661,7 +682,7 @@ class MainWindow(QMainWindow):
                 "",
             ])
 
-        col_widths = [42, 42, 28, 14, 14, 12]
+        col_widths = [56, 56, 28, 14, 14, 12]
         for i, width in enumerate(col_widths, 1):
             ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
 
@@ -669,11 +690,19 @@ class MainWindow(QMainWindow):
         thin = Side(style="thin", color="D9D9D9")
         alt_fill = PatternFill("solid", fgColor="F7F7F7")
         white_fill = PatternFill("solid", fgColor="FFFFFF")
+        fail_fill = PatternFill("solid", fgColor="FDE9E7")
+        fail_font = Font(name="Calibri", size=10, color="9C0006")
 
-        for row_index, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row), start=2):
+        for row_index, row in enumerate(ws.iter_rows(min_row=3, max_row=ws.max_row), start=3):
+            result = self.all_results[row_index - 3]
+            adresse_failed = result.get("statut") != "ok"
+            distance_failed = result.get("distance_raw") is None
+
             for cell in row:
                 cell.font = data_font
                 cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                if cell.column in (4, 5):
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.border = Border(
                     left=thin,
                     right=thin,
@@ -682,9 +711,19 @@ class MainWindow(QMainWindow):
                 )
                 cell.fill = alt_fill if row_index % 2 == 0 else white_fill
 
+            if adresse_failed:
+                row[0].fill = fail_fill
+                row[0].font = fail_font
+
+            if distance_failed:
+                row[3].fill = fail_fill
+                row[3].font = fail_font
+                row[4].fill = fail_fill
+                row[4].font = fail_font
+
         last_col = openpyxl.utils.get_column_letter(ws.max_column)
         last_row = ws.max_row
-        table = Table(displayName="NotesDeFrais", ref=f"A1:{last_col}{last_row}")
+        table = Table(displayName="NotesDeFrais", ref=f"A2:{last_col}{last_row}")
         table_style = TableStyleInfo(
             name="TableStyleMedium2",
             showFirstColumn=False,
@@ -695,10 +734,11 @@ class MainWindow(QMainWindow):
         table.tableStyleInfo = table_style
         ws.add_table(table)
 
-        ws.row_dimensions[1].height = 24
-        for row_idx in range(2, ws.max_row + 1):
+        ws.row_dimensions[1].height = 26
+        ws.row_dimensions[2].height = 24
+        for row_idx in range(3, ws.max_row + 1):
             ws.row_dimensions[row_idx].height = 22
-        ws.freeze_panes = "A2"
+        ws.freeze_panes = "A3"
         ws.sheet_view.showGridLines = False
         wb.save(path)
         self.status_label.setText(f"Excel exporté : {path}")
