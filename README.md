@@ -2,60 +2,51 @@
 
 Outil d'extraction automatique d'adresses depuis des photos de tickets de caisse.
 
----
+## Installation rapide
 
-## Installation Windows (à faire une seule fois)
+### Linux: Ubuntu, Debian, Arch, Hyprland, Hyde
 
-### 1. Installer Python 3.13
-Telecharger et installer : https://www.python.org/ftp/python/3.13.3/python-3.13.3-amd64.exe
+Le plus simple est de cloner le depot puis de lancer l'installateur local:
 
-**Important** : cocher la case **"Add Python to PATH"** pendant l'installation.
-
-### 2. Installer Ollama (moteur IA)
-Telecharger et installer : https://ollama.com/download/windows
-
-### 3. Telecharger le modele IA
-Ouvrir un terminal (cmd ou PowerShell) et taper :
+```bash
+git clone https://github.com/Traxxouu/receiptReader.git
+cd receiptReader
+bash install.sh
 ```
+
+Le script detecte automatiquement `apt` ou `pacman`, installe Python, Git et curl, cree un environnement virtuel, installe les dependances Python, installe Ollama si besoin, telecharge le modele `llama3.2`, puis cree `start.sh`.
+
+Pour lancer ensuite l'application:
+
+```bash
+bash start.sh
+```
+
+### Windows
+
+Le plus simple pour les utilisateurs Windows est de distribuer un installeur `ReceiptReaderSetup.exe` base sur `installer.nsi`.
+
+Si vous travaillez depuis la source, l'installation manuelle minimale est:
+
+```powershell
+py -3 -m venv venv
+venv\Scripts\python.exe -m pip install -r requirements.txt
 ollama pull llama3.2
+py app.py
 ```
-
-### 4. Telecharger Receipt Reader
-Telecharger le projet : https://github.com/Traxxouu/receiptReader/archive/refs/heads/main.zip
-
-Extraire le zip ou vous voulez.
-
-### 5. Installer les dependances Python
-Dans le dossier du projet, ouvrir un terminal et taper :
-```
-pip install easyocr opencv-python requests PyQt6 openpyxl
-```
-
----
-
-## Lancer l'application
-
-Dans le dossier du projet :
-```
-python app.py
-```
-
----
 
 ## Utilisation
 
 1. Saisir l'adresse du laboratoire dans le champ a gauche
 2. Glisser-deposer les photos de tickets dans la zone de drop
 3. Cliquer sur **Extraire les adresses**
-4. Si une adresse est incorrecte : cliquer sur **Voir** pour afficher le ticket, puis **Corriger** pour la modifier
-5. Cliquer sur **Exporter en Excel** pour obtenir le fichier .xlsx
-
----
+4. Si une adresse est incorrecte, cliquer sur **Corriger** pour voir les suggestions puis valider
+5. Cliquer sur **Exporter CSV** ou **Exporter Excel** pour recuperer le fichier final
 
 ## Problemes courants
 
-**"No module named easyocr"** → relancer `pip install easyocr`
+`No module named easyocr` : relancer l'installation des dependances dans le venv.
 
-**"Ollama n'est pas lance"** → ouvrir un terminal et taper `ollama serve`
+`Ollama n'est pas lance` : demarrer Ollama avec `ollama serve`.
 
-**L'application est lente au premier lancement** → normal, EasyOCR telecharge ses modeles (~500MB) une seule fois
+Premier lancement plus lent : normal, EasyOCR et Ollama peuvent telecharger leurs modeles la premiere fois.
