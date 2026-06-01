@@ -7,4 +7,5 @@ venv/
 output/*.csv
 images/*
 !images/.gitkeep
+!images/demo.gif
 !output/.gitkeep
