@@ -3,6 +3,8 @@ import os
 import requests
 import csv
 from datetime import datetime
+import threading
+from extractor import get_reader
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -375,6 +377,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.adresse_labo = ""
         self._build_ui()
+        threading.Thread(target=get_reader, daemon=True).start()
 
     def _build_ui(self):
         self.setStyleSheet("""
