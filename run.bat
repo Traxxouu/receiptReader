@@ -1,14 +1,21 @@
 @echo off
 REM Receipt Reader - lanceur unique (Windows, sans .exe)
-REM Une seule commande : la 1ere fois ca installe tout, ensuite ca lance direct.
-REM   Double-clic sur run.bat   OU   run.bat dans un terminal
-setlocal
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
+
+REM --- Setup des couleurs ANSI ---
+for /f %%a in ('echo prompt $E^| cmd') do set "ESC=%%a"
+set "GREEN=%ESC%[92m"
+set "PINK=%ESC%[95m"
+set "CYAN=%ESC%[96m"
+set "RED=%ESC%[91m"
+set "BOLD=%ESC%[1m"
+set "RESET=%ESC%[0m"
 
 REM --- Python installe ? ---
 where python >nul 2>&1
 if errorlevel 1 (
-  echo [!] Python n'est pas installe.
+  echo %RED%[!] Python n'est pas installe.%RESET%
   echo     Telecharge-le sur https://www.python.org/downloads/
   echo     IMPORTANT : coche "Add Python to PATH" pendant l'installation.
   pause
@@ -28,22 +35,50 @@ if not exist "venv" (
 )
 
 REM --- 2. Ollama installe ? ---
+set "OLLAMA_OK=0"
 where ollama >nul 2>&1
-if errorlevel 1 (
-  echo.
-  echo [!] Ollama n'est pas installe. Telecharge-le puis relance run.bat :
-  echo     https://ollama.com/download
-  pause
-  exit /b 1
+if not errorlevel 1 set "OLLAMA_OK=1"
+
+REM --- 3. Modele present ? ---
+set "MODEL_OK=0"
+if "%OLLAMA_OK%"=="1" (
+  ollama list | findstr /C:"llama3.2" >nul 2>&1
+  if not errorlevel 1 set "MODEL_OK=1"
+  if "!MODEL_OK!"=="0" (
+    echo [Setup] Telechargement du modele llama3.2 ^(~2 Go, une seule fois^)...
+    ollama pull llama3.2
+    ollama list | findstr /C:"llama3.2" >nul 2>&1
+    if not errorlevel 1 set "MODEL_OK=1"
+  )
 )
 
-REM --- 3. Modele present ? (Ollama Windows lance son serveur tout seul) ---
-ollama list | findstr /C:"llama3.2" >nul 2>&1
-if errorlevel 1 (
-  echo [Setup] Telechargement du modele llama3.2 ^(~2 Go, une seule fois^)...
-  ollama pull llama3.2
-)
+REM --- 4. Ecran final ---
+cls
+echo.
+echo %GREEN%%BOLD%  ============================================%RESET%
+echo %GREEN%%BOLD%            INSTALLATION TERMINEE%RESET%
+echo %GREEN%%BOLD%  ============================================%RESET%
+echo.
 
-REM --- 4. Lancement ---
-echo [Run] Lancement de receiptReader...
-python app.py
+if "%OLLAMA_OK%"=="1" (
+  echo %PINK%   [OK] Ollama est installe sur ta machine.%RESET%
+) else (
+  echo %RED%   [X] Ollama n'est PAS installe : https://ollama.com/download%RESET%
+)
+if "%MODEL_OK%"=="1" (
+  echo %PINK%   [OK] Le modele llama3.2 est present.%RESET%
+) else (
+  echo %RED%   [X] Le modele llama3.2 est absent : ollama pull llama3.2%RESET%
+)
+echo %PINK%   -^> Verifie qu'Ollama tourne en arriere-plan%RESET%
+echo %PINK%      (icone dans la barre des taches).%RESET%
+echo.
+echo %CYAN%%BOLD%   Pour lancer l'application, tape :%RESET%
+echo.
+echo %CYAN%%BOLD%        python app.py%RESET%
+echo.
+echo   (puis Entree)
+echo.
+
+REM --- 5. On laisse un terminal pret : bon dossier + venv deja active ---
+cmd /k
