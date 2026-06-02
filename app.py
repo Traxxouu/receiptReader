@@ -3,13 +3,15 @@ import os
 import requests
 import csv
 from datetime import datetime
+import threading
+from extractor import get_reader
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QFileDialog, QScrollArea,
     QFrame, QProgressBar, QSizePolicy, QDialog, QMessageBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPoint
 from PyQt6.QtGui import QFont, QCursor, QPixmap
 
 from preprocessor import preprocess_image
@@ -47,6 +49,7 @@ class Worker(QThread):
                 "adresse": "",
                 "distance_km": "",
                 "distance_raw": None,
+                "confiance": "basse",
                 "statut": "erreur",
             }
 
@@ -67,9 +70,10 @@ class Worker(QThread):
                 if adresse:
                     self._log_stage(i, total, filename, "calcul de la distance")
                     entry["adresse"] = adresse
-                    dist = calculer_distance(self.adresse_labo, adresse)
+                    dist, confiance = calculer_distance(self.adresse_labo, adresse)
                     entry["distance_raw"] = dist
                     entry["distance_km"] = f"{dist:.1f} km" if dist else "N/A"
+                    entry["confiance"] = confiance
                     entry["statut"] = "ok"
                     self._log_stage(i, total, filename, f"termine -> {entry['distance_km']}")
                 else:
@@ -89,29 +93,103 @@ class Worker(QThread):
 # ─────────────────────────────────────────────
 # Fenetre apercu ticket
 # ─────────────────────────────────────────────
+class _PannableLabel(QLabel):
+    """Image label avec drag-to-pan."""
+    def __init__(self, scroll_area: "QScrollArea"):
+        super().__init__()
+        self._scroll = scroll_area
+        self._drag_pos: QPoint | None = None
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint()
+            self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+
+    def mouseMoveEvent(self, e):
+        if self._drag_pos is not None:
+            delta = e.globalPosition().toPoint() - self._drag_pos
+            self._drag_pos = e.globalPosition().toPoint()
+            hbar = self._scroll.horizontalScrollBar()
+            vbar = self._scroll.verticalScrollBar()
+            hbar.setValue(hbar.value() - delta.x())
+            vbar.setValue(vbar.value() - delta.y())
+
+    def mouseReleaseEvent(self, e):
+        self._drag_pos = None
+        self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+
+
 class TicketViewer(QDialog):
     def __init__(self, img_path: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Apercu du ticket")
-        self.setMinimumSize(400, 600)
+        self.setMinimumSize(500, 700)
         self.setStyleSheet("background: #fff;")
+        self._zoom = 1.0
+        self._pixmap_orig = QPixmap(img_path)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("border: none;")
+        # barre zoom
+        zoom_bar = QHBoxLayout()
+        zoom_bar.setSpacing(6)
 
-        img_label = QLabel()
-        pixmap = QPixmap(img_path)
-        if not pixmap.isNull():
-            pixmap = pixmap.scaledToWidth(500, Qt.TransformationMode.SmoothTransformation)
-        img_label.setPixmap(pixmap)
-        img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        btn_style = """
+            QPushButton {
+                background: #f0f0f0; color: #1a1a1a;
+                border: 1px solid #ddd; border-radius: 3px;
+                padding: 4px 10px; font-family: Georgia; font-size: 12px;
+            }
+            QPushButton:hover { background: #e0e0e0; }
+        """
+        btn_minus = QPushButton("−")
+        btn_minus.setFixedWidth(32)
+        btn_minus.setStyleSheet(btn_style)
+        btn_minus.clicked.connect(self._zoom_out)
 
-        scroll.setWidget(img_label)
-        layout.addWidget(scroll)
+        btn_plus = QPushButton("+")
+        btn_plus.setFixedWidth(32)
+        btn_plus.setStyleSheet(btn_style)
+        btn_plus.clicked.connect(self._zoom_in)
+
+        btn_reset = QPushButton("Ajuster")
+        btn_reset.setFixedWidth(58)
+        btn_reset.setStyleSheet(btn_style)
+        btn_reset.clicked.connect(self._zoom_fit)
+
+        self.zoom_lbl = QLabel("100%")
+        self.zoom_lbl.setFont(QFont("Georgia", 9))
+        self.zoom_lbl.setStyleSheet("color: #999;")
+        self.zoom_lbl.setFixedWidth(42)
+
+        hint = QLabel("Ctrl+molette pour zoomer  ·  cliquer-glisser pour déplacer")
+        hint.setFont(QFont("Georgia", 8))
+        hint.setStyleSheet("color: #bbb;")
+
+        zoom_bar.addWidget(hint)
+        zoom_bar.addStretch()
+        zoom_bar.addWidget(btn_minus)
+        zoom_bar.addWidget(self.zoom_lbl)
+        zoom_bar.addWidget(btn_plus)
+        zoom_bar.addWidget(btn_reset)
+        layout.addLayout(zoom_bar)
+
+        self.scroll = QScrollArea()
+        self.scroll.setStyleSheet("border: none;")
+        self.scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.img_label = _PannableLabel(self.scroll)
+        self.scroll.setWidget(self.img_label)
+        layout.addWidget(self.scroll, stretch=1)
+
+        # zoom initial : adapter à la largeur disponible (~500px)
+        if not self._pixmap_orig.isNull():
+            self._zoom = min(1.0, 500 / max(self._pixmap_orig.width(), 1))
+        self._render()
 
         btn_close = QPushButton("Fermer")
         btn_close.setStyleSheet("""
@@ -124,6 +202,46 @@ class TicketViewer(QDialog):
         """)
         btn_close.clicked.connect(self.close)
         layout.addWidget(btn_close)
+
+    def _render(self):
+        if self._pixmap_orig.isNull():
+            self.img_label.setText("Image introuvable")
+            return
+        w = int(self._pixmap_orig.width() * self._zoom)
+        h = int(self._pixmap_orig.height() * self._zoom)
+        scaled = self._pixmap_orig.scaled(
+            w, h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.img_label.setPixmap(scaled)
+        self.img_label.resize(scaled.width(), scaled.height())
+        self.zoom_lbl.setText(f"{int(self._zoom * 100)}%")
+
+    def _zoom_in(self):
+        self._zoom = min(self._zoom + 0.25, 4.0)
+        self._render()
+
+    def _zoom_out(self):
+        self._zoom = max(self._zoom - 0.25, 0.25)
+        self._render()
+
+    def _zoom_fit(self):
+        if not self._pixmap_orig.isNull():
+            self._zoom = min(1.0, (self.scroll.width() - 20) / max(self._pixmap_orig.width(), 1))
+        self._render()
+
+    def wheelEvent(self, event):
+        # molette seule -> scroll normal (propagé au QScrollArea)
+        # Ctrl+molette -> zoom
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if event.angleDelta().y() > 0:
+                self._zoom_in()
+            else:
+                self._zoom_out()
+            event.accept()
+        else:
+            event.ignore()
 
 
 class CorrectionDialog(QDialog):
@@ -263,12 +381,16 @@ class DropZone(QFrame):
 class ResultRow(QFrame):
     adresse_modifiee = pyqtSignal(str, str)
 
-    STATUS_STYLE = {
-        "ok": "#2d6a4f",
-        "non_trouve": "#999",
-        "vide": "#bbb",
-        "erreur": "#c0392b",
+    CONFIANCE_STYLE = {
+        "haute":   "#2d6a4f",  # vert   - fiable
+        "moyenne": "#b9770e",  # orange - a verifier
+        "basse":   "#c0392b",  # rouge  - a corriger
     }
+
+    def _niveau(self, data):
+        if data.get("statut") != "ok":
+            return "basse"
+        return data.get("confiance", "basse")
 
     def __init__(self, data: dict, adresse_labo: str):
         super().__init__()
@@ -280,9 +402,13 @@ class ResultRow(QFrame):
         layout.setContentsMargins(0, 10, 0, 10)
         layout.setSpacing(12)
 
-        statut = data.get("statut", "erreur")
-        color = self.STATUS_STYLE.get(statut, "#999")
-        distance_failed = data.get("distance_raw") is None and statut == "ok"
+        color = self.CONFIANCE_STYLE[self._niveau(data)]
+        distance_failed = data.get("distance_raw") is None
+
+        self.dot = QLabel("●")
+        self.dot.setFixedWidth(14)
+        self.dot.setFont(QFont("Arial", 10))
+        self.dot.setStyleSheet(f"color: {color};")
 
         fichier = QLabel(data.get("fichier", ""))
         fichier.setFixedWidth(190)
@@ -291,10 +417,7 @@ class ResultRow(QFrame):
 
         self.adresse_lbl = QLabel(data.get("adresse") or "—")
         self.adresse_lbl.setFont(QFont("Georgia", 10))
-        if distance_failed:
-            self.adresse_lbl.setStyleSheet("color: #c0392b;")
-        else:
-            self.adresse_lbl.setStyleSheet(f"color: {color};")
+        self.adresse_lbl.setStyleSheet(f"color: {color};")
         self.adresse_lbl.setWordWrap(True)
         self.adresse_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
@@ -333,6 +456,7 @@ class ResultRow(QFrame):
         """)
         btn_edit.clicked.connect(self._corriger_adresse)
 
+        layout.addWidget(self.dot)
         layout.addWidget(fichier)
         layout.addWidget(self.adresse_lbl)
         layout.addWidget(self.dist_lbl)
@@ -352,12 +476,16 @@ class ResultRow(QFrame):
             nouvelle = dlg.selected.strip()
             self.data["adresse"] = nouvelle
             self.adresse_lbl.setText(nouvelle)
-            self.adresse_lbl.setStyleSheet("color: #1a5276;")
 
-            dist = calculer_distance(self.adresse_labo, nouvelle)
+            dist, confiance = calculer_distance(self.adresse_labo, nouvelle)
             self.data["distance_raw"] = dist
             self.data["distance_km"] = f"{dist:.1f} km" if dist else "N/A"
+            self.data["confiance"] = confiance
+            self.data["statut"] = "ok"
             self.dist_lbl.setText(self.data["distance_km"])
+            color = self.CONFIANCE_STYLE[self._niveau(self.data)]
+            self.adresse_lbl.setStyleSheet(f"color: {color};")
+            self.dot.setStyleSheet(f"color: {color};")
             self.adresse_modifiee.emit(self.data["fichier"], nouvelle)
 
 
@@ -375,6 +503,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.adresse_labo = ""
         self._build_ui()
+        threading.Thread(target=get_reader, daemon=True).start()
 
     def _build_ui(self):
         self.setStyleSheet("""
@@ -535,7 +664,7 @@ class MainWindow(QMainWindow):
         ch = QHBoxLayout(self.col_header)
         ch.setContentsMargins(0, 0, 0, 0)
         ch.setSpacing(12)
-        for txt, w in [("FICHIER", 190), ("ADRESSE EXTRAITE", None), ("DISTANCE", 70), ("", 44), ("", 60)]:
+        for txt, w in [("", 14), ("FICHIER", 190), ("ADRESSE EXTRAITE", None), ("DISTANCE", 70), ("", 44), ("", 60)]:
             lbl2 = QLabel(txt)
             lbl2.setFont(QFont("Georgia", 8))
             lbl2.setStyleSheet("color: #ccc; letter-spacing: 1px;")
@@ -546,6 +675,10 @@ class MainWindow(QMainWindow):
             ch.addWidget(lbl2)
         self.col_header.setVisible(False)
         rl.addWidget(self.col_header)
+
+        self.legend = self._build_legend()
+        self.legend.setVisible(False)
+        rl.addWidget(self.legend)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -558,6 +691,23 @@ class MainWindow(QMainWindow):
         rl.addWidget(scroll, stretch=1)
 
         root.addWidget(right, stretch=1)
+
+    def _build_legend(self):
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 6, 0, 6)
+        lay.setSpacing(18)
+        for color, text in [("#2d6a4f", "Fiable"), ("#b9770e", "À vérifier"), ("#c0392b", "À corriger")]:
+            dot = QLabel("●")
+            dot.setFont(QFont("Arial", 10))
+            dot.setStyleSheet(f"color: {color};")
+            lbl = QLabel(text)
+            lbl.setFont(QFont("Georgia", 9))
+            lbl.setStyleSheet("color: #777;")
+            lay.addWidget(dot)
+            lay.addWidget(lbl)
+        lay.addStretch()
+        return w
 
     def _on_files_dropped(self, paths):
         if not paths:
@@ -574,6 +724,7 @@ class MainWindow(QMainWindow):
         self.section_label.setText(f"FICHIERS SELECTIONNES  —  {len(self.image_paths)} image(s)")
         self.section_label.setVisible(True)
         self.col_header.setVisible(False)
+        self.legend.setVisible(False)
         self.btn_extract.setEnabled(True)
         self.btn_clear.setVisible(True)
         self.status_label.setText("")
@@ -591,6 +742,7 @@ class MainWindow(QMainWindow):
         self._clear_content()
         self.section_label.setVisible(False)
         self.col_header.setVisible(False)
+        self.legend.setVisible(False)
         self.btn_extract.setEnabled(False)
         self.btn_clear.setVisible(False)
         self.btn_export_csv.setVisible(False)
@@ -648,6 +800,7 @@ class MainWindow(QMainWindow):
         self.section_label.setText("RESULTATS")
         self.section_label.setVisible(True)
         self.col_header.setVisible(True)
+        self.legend.setVisible(True)
 
         self.worker = Worker(self.image_paths, self.adresse_labo)
         self.worker.progress.connect(self._on_progress)
